@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="26bb4e77-1799-4a6b-ac59-dcd1c84e0c9d" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="d0e726f5-8d0c-4c1d-853b-f12f8908675d" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="pramati" database="day7" />
+	</db:config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="f46d2415-f967-409f-ad76-0d77857f0ef8" >
+		<file:connection workingDir="/home/sairaghav/AnypointStudio/studio-workspace/mule/day7/output" />
+	</file:config>
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="24af13c6-2f48-4961-8d9c-9b40971d0732" >
+		<vm:connection >
+		</vm:connection>
+		<vm:queues >
+			<vm:queue queueName="Employees" />
+		</vm:queues>
+	</vm:config>
+	<vm:config name="VM_Config1" doc:name="VM Config" doc:id="f9e6a95e-c2a2-421d-a028-0c50ad749599" >
+		<vm:connection />
+		<vm:queues >
+			<vm:queue queueName="Employees_Bad_Records" />
+		</vm:queues>
+	</vm:config>
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="87dbbcf4-4904-41a2-b03e-4f00c0bb5a4b" >
+		<http:request-connection host="localhost" port="8081" />
+	</http:request-config>
+	<flow name="day7-usecase-vmFlow" doc:id="97d43a94-933e-42ae-b531-7ce7b6ef98b3" >
+		<http:listener doc:name="Listener" doc:id="a1f57df2-80f0-4a1c-ad51-73059286135c" config-ref="HTTP_Listener_config" path="/students"/>
+		<logger level="INFO" doc:name="Logger" doc:id="56a62ef4-43dc-442e-86db-49b365b95928" />
+		<try doc:name="Try" doc:id="6f41a474-2af1-44e3-9962-3731998e6ba2" >
+			<db:insert doc:name="Insert" doc:id="1308ec87-5a32-43b9-aab1-b6751b341970" config-ref="Database_Config">
+				<db:sql ><![CDATA[INSERT INTO day7.EmployeeInfo
+           (`FirstName`, `LastName`, `Contact`)
+     VALUES(:firstName,:lastName, :contact)]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{"firstName" : payload.firstName, "lastName" : payload.lastName, "contact" : payload.contact}]]]></db:input-parameters>
+			</db:insert>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="34358d99-f673-453a-b87c-eccd2fd20ef8" >
+					<file:write doc:name="Write" doc:id="eef87ff2-8907-465e-977b-ffce48efec4a" path="#['UnProcessed_File' ++ (now() as String {format:'yyyy-MM-dd-hh-mm-ss.SSS'}) ++ '.json']" config-ref="File_Config"/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="fe90bb00-16dc-4612-a297-c4a9e51b8f5a">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="day7-usecase-vmFlow1" doc:id="2806a50f-f6f3-4f5f-a2cd-8c8d2510c341" >
+		<file:listener doc:name="On New or Updated File" doc:id="78a71bc8-07e0-4904-8777-3d11008e3d39" config-ref="File_Config" autoDelete="true">
+			<scheduling-strategy >
+				<fixed-frequency />
+			</scheduling-strategy>
+		</file:listener>
+		<logger level="INFO" doc:name="Logger" doc:id="45f808f1-4f7b-4664-898d-7768d0f74d98" message="#[payload]"/>
+		<choice doc:name="Choice" doc:id="6219aee5-057f-4205-837f-0c62da67e586">
+			<when expression="#[payload.id != 'x']">
+				<vm:publish doc:name="Publish" doc:id="b06be9cb-55ef-44bf-b465-d6aa6cd78dac" config-ref="VM_Config" queueName="Employees"/>
+				<logger level="INFO" doc:name="Logger" doc:id="f687f66d-15a6-494f-ae5c-aa86ff961ade" />
+			</when>
+			<otherwise >
+				<vm:publish doc:name="Publish" doc:id="dd4280d5-2dd3-4b12-bc8e-bfecae1c787e" config-ref="VM_Config1" queueName="Employees_Bad_Records"/>
+				<logger level="INFO" doc:name="Logger" doc:id="db379fa2-a50f-420a-8801-86103db9c92e" message="After publish to queue #[payload]"/>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="day7-usecase-vmFlow2" doc:id="35c269b7-5dba-40e7-9170-ecbd365c0395" >
+		<scheduler doc:name="Scheduler" doc:id="ec19ab3f-c372-4f91-9587-b7f59124549d">
+			<scheduling-strategy>
+				<fixed-frequency frequency="100000"/>
+			</scheduling-strategy>
+		</scheduler>
+		<vm:consume doc:name="Consume" doc:id="3c2586c9-4d3a-45b1-8270-36eb86e45967" config-ref="VM_Config" queueName="Employees"/>
+		<logger level="INFO" doc:name="Logger" doc:id="587d7623-abd1-4554-9504-0ee87934a89d" message="consuming from queue #[payload]"/>
+		<http:request method="POST" doc:name="Request" doc:id="fb6a3d74-1207-40c0-911d-3490f1e4fc4c" config-ref="HTTP_Request_configuration" path="/students"/>
+	</flow>
+</mule>
